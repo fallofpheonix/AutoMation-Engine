@@ -28,7 +28,15 @@ class TaskOrchestrator:
         """
         # Mark task as running
         self.db.update_task_status(task_id, "running")
-        self.db.log(task_id, f"Starting task execution with {len(steps)} steps")
+        self.db.log(
+            task_id,
+            f"Starting task execution with {len(steps)} steps",
+            action="task_execute",
+            params={"step_count": len(steps)},
+            status="running",
+            duration_ms=0,
+            error=None
+        )
         
         task_results = {
             'task_id': task_id,
@@ -48,16 +56,19 @@ class TaskOrchestrator:
             
             task_results['step_results'].append(step_result)
             
-            # If step failed permanently, stop execution
+            # Sequential execution: stop on first failed or timed out step.
             if step_result['status'] in ['failed', 'timeout']:
-                error_type = self.classifier.classify(step_result.get('error', ''))
-                if error_type.value == 'permanent':
-                    self.db.log(
-                        task_id,
-                        f"Step {step_num} failed permanently: {step_result.get('error')}",
-                        severity='error'
-                    )
-                    break
+                self.db.log(
+                    task_id,
+                    f"Step {step_num} stopped task execution: {step_result.get('error')}",
+                    severity='error',
+                    action="task_execute",
+                    params={"failed_step": step_num, "step_action": step_result.get("action")},
+                    status=step_result['status'],
+                    duration_ms=step_result.get('duration_ms'),
+                    error=step_result.get('error')
+                )
+                break
             
             # Count completed steps
             if step_result['status'] == 'success':
@@ -73,7 +84,15 @@ class TaskOrchestrator:
         self.db.update_task_status(task_id, final_status)
         self.db.log(
             task_id,
-            f"Task execution completed: {final_status} ({task_results['completed_steps']}/{len(steps)} steps)"
+            f"Task execution completed: {final_status} ({task_results['completed_steps']}/{len(steps)} steps)",
+            action="task_execute",
+            params={
+                "step_count": len(steps),
+                "completed_steps": task_results['completed_steps']
+            },
+            status=final_status,
+            duration_ms=sum(step.get('duration_ms', 0) for step in task_results['step_results']),
+            error=None
         )
         
         return task_results
@@ -110,8 +129,15 @@ class TaskOrchestrator:
         self.db.log(
             task_id,
             f"Starting step {step_num}: {action_name}",
-            step_id=step_id
+            step_id=step_id,
+            action=action_name,
+            params=step_data,
+            status="running",
+            duration_ms=0,
+            error=None
         )
+
+        self.db.update_step_status(step_id, "running")
         
         # Define the action to execute
         def execute_action() -> ExecutionResult:
@@ -143,9 +169,9 @@ class TaskOrchestrator:
         )
         
         # Update database
+        self.db.update_step_status(step_id, result.status)
         self.db.update_step_result(
             step_id=step_id,
-            status=result.status,
             duration_ms=result.duration_ms,
             error_message=result.error,
             retry_count=result.retry_count
@@ -160,7 +186,17 @@ class TaskOrchestrator:
             log_msg += f" - Error: {result.error}"
         
         severity = 'error' if result.status == 'failed' else 'info'
-        self.db.log(task_id, log_msg, severity=severity, step_id=step_id)
+        self.db.log(
+            task_id,
+            log_msg,
+            severity=severity,
+            step_id=step_id,
+            action=action_name,
+            params=step_data,
+            status=result.status,
+            duration_ms=result.duration_ms,
+            error=result.error
+        )
         
         return {
             'step_number': step_num,

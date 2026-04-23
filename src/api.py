@@ -54,7 +54,13 @@ class MetricsResponse(BaseModel):
 
 class LogEntry(BaseModel):
     timestamp: str
+    task_id: str
     step_id: Optional[str]
+    action: Optional[str]
+    params: Optional[Dict[str, Any]]
+    status: Optional[str]
+    duration_ms: Optional[float]
+    error: Optional[str]
     message: str
     severity: str
 
@@ -123,7 +129,14 @@ def create_app(executor=None, db=None):
             if not task:
                 raise HTTPException(status_code=404, detail="Task not found")
             
-            return TaskStatusResponse(**task)
+            return TaskStatusResponse(
+                task_id=task['id'],
+                name=task['name'],
+                status=task['status'],
+                created_at=task['created_at'],
+                started_at=task['started_at'],
+                completed_at=task['completed_at']
+            )
         except HTTPException:
             raise
         except Exception as e:
@@ -176,7 +189,7 @@ def create_app(executor=None, db=None):
             _db.create_task(task_id, task_input.name)
             
             # Convert Pydantic models to dicts for orchestrator
-            steps_list = [step.dict() for step in task_input.steps]
+            steps_list = [step.model_dump() for step in task_input.steps]
             
             # Execute
             result = _orchestrator.execute_task(task_id, steps_list)
@@ -203,10 +216,16 @@ def create_app(executor=None, db=None):
                 'logs': [
                     LogEntry(
                         timestamp=log['timestamp'],
+                        task_id=log['task_id'],
                         step_id=log['step_id'],
+                        action=log['action'],
+                        params=log['params'],
+                        status=log['status'],
+                        duration_ms=log['duration_ms'],
+                        error=log['error'],
                         message=log['message'],
                         severity=log['severity']
-                    ).dict()
+                    ).model_dump()
                     for log in logs
                 ]
             }

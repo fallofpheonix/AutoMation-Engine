@@ -3,6 +3,7 @@ import asyncio
 from typing import Callable, Awaitable, Union
 from src.executor import ExecutionResult
 from src.error_classifier import ErrorClassifier, ErrorType
+from src.timeout import execute_with_timeout, execute_with_timeout_sync
 
 
 class RetryConfig:
@@ -13,12 +14,14 @@ class RetryConfig:
         max_retries: int = 3,
         initial_backoff_seconds: float = 1.0,
         max_backoff_seconds: float = 16.0,
-        backoff_multiplier: float = 2.0
+        backoff_multiplier: float = 2.0,
+        action_timeout_seconds: int = 10
     ):
         self.max_retries = max_retries
         self.initial_backoff_seconds = initial_backoff_seconds
         self.max_backoff_seconds = max_backoff_seconds
         self.backoff_multiplier = backoff_multiplier
+        self.action_timeout_seconds = action_timeout_seconds
 
 
 class RetryEngine:
@@ -47,7 +50,10 @@ class RetryEngine:
         
         for attempt in range(self.config.max_retries):
             # Execute action
-            result = action()
+            result = execute_with_timeout_sync(
+                action,
+                timeout=self.config.action_timeout_seconds
+            )
             result.retry_count = attempt
             
             # Success - return immediately
@@ -55,7 +61,7 @@ class RetryEngine:
                 return result
             
             # Classify error
-            error_type = self.classifier.classify(result.error)
+            error_type = self.classifier.classify(result.error or "")
             
             # Permanent error - don't retry
             if error_type == ErrorType.PERMANENT:
@@ -96,24 +102,17 @@ class RetryEngine:
         Returns:
             ExecutionResult with status=timeout if exceeded
         """
-        try:
-            # Check if action is async
-            if asyncio.iscoroutinefunction(action):
-                result = await asyncio.wait_for(
-                    action(),
-                    timeout=timeout_seconds
-                )
-            else:
-                # Run sync action in executor (non-blocking)
-                loop = asyncio.get_event_loop()
-                result = await asyncio.wait_for(
-                    loop.run_in_executor(None, action),
-                    timeout=timeout_seconds
-                )
-            return result
-        except asyncio.TimeoutError:
-            return ExecutionResult(
-                status="timeout",
-                duration_ms=timeout_seconds * 1000,
-                error=f"Action '{action_name}' timed out after {timeout_seconds}s"
+        # Check if action is async
+        if asyncio.iscoroutinefunction(action):
+            result = await execute_with_timeout(
+                action(),
+                timeout=timeout_seconds
             )
+        else:
+            # Run sync action in executor (non-blocking)
+            loop = asyncio.get_event_loop()
+            result = await execute_with_timeout(
+                loop.run_in_executor(None, action),
+                timeout=timeout_seconds
+            )
+        return result
