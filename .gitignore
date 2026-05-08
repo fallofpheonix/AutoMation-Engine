@@ -48,3 +48,48 @@ Thumbs.db
 # Environment
 .env
 .env.local
+# OS/editor
+*.pyo
+.ruff_cache/
+.mypy_cache/
+.venv/
+# Node/JS
+node_modules/
+coverage/
+.env.*
+!.env.example
+# Dart/Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+# Local data, models, and generated artifacts
+*.db.bak
+*.sqlite
+*.sqlite3
+*.log
+*.jsonl
+*.csv.tmp
+out/
+out_old/
+output/
+outputs/
+artifacts/runs/
+artifacts/checkpoints/
+models/**/*.pt
+models/**/*.pth
+models/**/*.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.mp3
+*.wav
+*.m4a
+# Native build products
+*.o
+*.a
+*.dylib
+*.exe
+bench/bench_*
+tests/test_*
